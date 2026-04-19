@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:5174)",
+      "Bash(curl -si http://localhost:5174/)",
+      "Bash(node -e \"const fs = require\\('fs'\\); const code = fs.readFileSync\\('c:/Users/이준용/mumusubject/client/src/scenes/BootScene.js', 'utf8'\\); try { new Function\\(code\\); console.log\\('OK'\\); } catch\\(e\\) { console.log\\('SyntaxError:', e.message\\); }\")",
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(netstat -ano)",
+      "Bash(taskkill //PID 28080 //F)",
+      "Bash(node scripts/resize-asset.js --input scripts/temp/youngmi-cheer.png --name youngmi-cheer --type item --dest client/public/assets/youngmi-cheer.png)",
+      "Bash(node scripts/resize-asset.js --input scripts/temp/stone-glossy.png --name stone-glossy --type item --dest client/public/assets/stone-glossy.png)",
+      "Bash(node scripts/resize-asset.js --input scripts/temp/ice-surface.png --name ice-surface --type item --dest client/public/assets/ice-surface.png)",
+      "Bash(node scripts/resize-asset.js --help)",
+      "Bash(node scripts/resize-asset.js --input scripts/temp/youngmi-cheer.png --name youngmi-cheer --type character --dest client/public/assets/youngmi-cheer.png)",
+      "Bash(node scripts/resize-asset.js --input scripts/temp/ice-surface.png --name ice-surface --type custom --width 256 --height 256 --dest client/public/assets/ice-surface.png)",
+      "Bash(findstr \"LISTEN\")",
+      "Bash(findstr \":52\")",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "Bash(node --input-type=module)",
+      "Bash(node --input-type=module --eval ' *)",
+      "Bash(node -e ' *)",
+      "Bash(gh --version)",
+      "Bash(start \"\" \"https://github.com/reinhardt7177-lab/mumusubject/compare/main...claude/loving-franklin-483665?expand=1\")",
+      "Bash(npx --yes vercel --version)",
+      "Bash(npx vercel *)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code} | %{size_download} bytes | %{time_total}s\\\\n\" https://loving-franklin-483665.vercel.app/)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code} | %{size_download} bytes \\(curling-title.png\\)\\\\n\" https://loving-franklin-483665.vercel.app/assets/curling-title.png)",
+      "Bash(curl -s https://loving-franklin-483665.vercel.app/)"
+    ]
+  }
+}
