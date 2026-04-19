@@ -1,9 +1,8 @@
-// mumusubject - 클라이언트 진입점
-// Phaser.js 기반 게임 시작
+// mumuculing - 클라이언트 진입점
+// Phaser.js 기반 컬링 게임 시작
 
 import Phaser from 'phaser';
 import BootScene from './scenes/BootScene';
-import MathScene from './scenes/MathScene';
 import CurlingScene from './scenes/CurlingScene';
 
 const config = {
@@ -32,9 +31,7 @@ const config = {
   },
   scene: [
     BootScene,
-    MathScene,
     CurlingScene,
-    // 추후 씬 추가
   ],
 };
 

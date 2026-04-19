@@ -26,21 +26,13 @@ export default class BootScene extends Phaser.Scene {
   }
 
   create() {
-    console.log('🎮 mumusubject 시작 중...');
+    console.log('🥌 mumuculing 시작 중...');
 
-    // 모든 게임 텍스처를 Graphics로 생성
     this.createPlayerTexture();
-    this.createMonsterTextures();
     this.createDustTexture();
     this.createCurlingTextures();
 
-    this.scene.start(this._resolveInitialScene());
-  }
-
-  // ─── URL `?mode=curling` 파라미터로 초기 씬 분기 ─────────
-  _resolveInitialScene() {
-    const mode = new URLSearchParams(window.location.search).get('mode');
-    return mode === 'curling' ? 'CurlingScene' : 'MathScene';
+    this.scene.start('CurlingScene');
   }
 
   // ─── 플레이어 텍스처 (SKILLS.md 학년별 학생 캐릭터, 80×80) ──
