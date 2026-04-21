@@ -88,6 +88,11 @@ export default class CurlingScene extends Phaser.Scene {
     this._broomTween     = null;
     this._audioCtx       = null;
 
+    // ── [해머 & 엔드별 점수 & 프리가드존] ─────────────────────
+    this._hammer      = 'player'; // 첫 엔드 플레이어 해머 (후공 어드밴티지)
+    this._endScores   = [];       // [{player:N, ai:N, blank:bool}] 엔드별 점수
+    this._fgzSnapshot = [];       // [{stone, savedX, savedY}] — 투척 전 FGZ 돌 저장
+
     this._hasStoneImg  = this.textures.exists('stone-glossy');
     this._hasYoungmiImg= this.textures.exists('youngmi-cheer');
     this._hasIceImg    = this.textures.exists('ice-surface');
@@ -485,12 +490,14 @@ export default class CurlingScene extends Phaser.Scene {
 
   _updateHUD() {
     const throwNum  = Math.floor(this._throwIdx / 2) + 1;
-    const isTeam1   = this._throwIdx % 2 === 0;
+    const isTeam1   = this._isPlayerTurn();
     const teamLabel = this._gameMode === 'duo'
       ? (isTeam1 ? '🔴1P' : '🔵2P')
       : (isTeam1 ? '🔴'   : '🔵AI');
     this._endText.setText(`END ${this._endIdx}/${TOTAL_ENDS}  ${teamLabel} ${throwNum}/${STONES_PER_END}`);
-    this._scoreText.setText(`🔴 ${this._playerScore} : ${this._aiScore} 🔵`);
+    // [해머] 해머 보유 팀 옆에 🔨 표시
+    const hamP = this._hammer === 'player';
+    this._scoreText.setText(`🔴${hamP ? '🔨' : ''} ${this._playerScore} : ${this._aiScore} ${hamP ? '' : '🔨'}🔵`);
     this._sweepText.setText(`영미! ×${this._sweepCount}`);
 
     // ── 스톤 잔량 도트 (전광판 하단 줄, x=270/530) ──────────
@@ -811,7 +818,17 @@ export default class CurlingScene extends Phaser.Scene {
   }
 
   _isPlayerTurn() {
+    // [해머 룰] 비해머 팀이 먼저(짝수 throwIdx), 해머 팀이 나중(홀수 = 마지막)
+    if (this._hammer === 'player') return this._throwIdx % 2 === 1;
     return this._throwIdx % 2 === 0;
+  }
+
+  // [프리가드존] 하우스 앞 ~ 원거리 호그 라인 구간 (y=178~215)
+  _isInFGZ(s) {
+    const dx = s.x - RK.houseCx, dy = s.y - RK.houseCy;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    // 하우스 바깥 AND 하우스 앞면(houseCy+ringBlue) ~ hogFar 사이
+    return s.inPlay && d > RK.ringBlue && s.y > (RK.houseCy + RK.ringBlue) && s.y < RK.hogFar;
   }
 
   _enterOverview() {
@@ -828,8 +845,8 @@ export default class CurlingScene extends Phaser.Scene {
     this._setHUDVisible(true);
 
     if (this._gameMode === 'duo') {
-      // 2인용: 항상 인간 플레이어 — 두 팀 모두 레디 버튼
-      const isTeam1 = this._throwIdx % 2 === 0;
+      // 2인용: 항상 인간 플레이어 — 해머 룰에 따른 팀 표시
+      const isTeam1 = this._isPlayerTurn();
       this._readyBtn.txt.setText(isTeam1 ? '🔴  1P  레디  !' : '🔵  2P  레디  !');
       this._readyBtn.bg.fillColor = isTeam1 ? 0x551111 : 0x112255;
       this._readyBtn.placeAt(400, 320, 1);
@@ -853,8 +870,8 @@ export default class CurlingScene extends Phaser.Scene {
     if (this._state !== S.OVERVIEW) return;
     this._readyBtn.setVisible(false);
     this._setHUDVisible(false);
-    // 짝수 throwIdx = team1(🔴), 홀수 throwIdx = team2(🔵)
-    const team = (this._throwIdx % 2 === 0) ? 'player' : 'ai';
+    // 해머 룰 적용: _isPlayerTurn()으로 현재 투척 팀 결정
+    const team = this._isPlayerTurn() ? 'player' : 'ai';
     this._spawnStone(team);
     this._camGo(CAM.throw);
     this.time.delayedCall(CAM.throw.dur, () => this._enterAim());
@@ -1115,6 +1132,17 @@ export default class CurlingScene extends Phaser.Scene {
     this._sweepMul = 1.0; this._recentTaps = [];
     this._state = S.SLIDING;
     this._setHUDVisible(true);
+
+    // [프리가드존] 첫 4투구에서 상대방 FGZ 돌 스냅샷 저장
+    if (this._throwIdx < 4) {
+      const opStones = (this._activeStone && this._activeStone.team === 'player')
+        ? this._aiStones : this._playerStones;
+      this._fgzSnapshot = opStones
+        .filter(s => s.inPlay && this._isInFGZ(s))
+        .map(s => ({ stone: s, savedX: s.x, savedY: s.y }));
+    } else {
+      this._fgzSnapshot = [];
+    }
   }
 
   // ─── 슬라이딩 물리 ────────────────────────────────────────
@@ -1323,8 +1351,56 @@ export default class CurlingScene extends Phaser.Scene {
       this._activeStone = null;
     }
 
+    // [프리가드존 위반 체크] 첫 4투구에서 FGZ 돌이 이동/제거됐으면 파울
+    if (this._throwIdx < 4 && this._fgzSnapshot.length > 0) {
+      const foul = this._fgzSnapshot.some(snap => {
+        if (!snap.stone.inPlay) return true; // 링크 밖으로 나감 = 파울
+        const dx = snap.stone.x - snap.savedX, dy = snap.stone.y - snap.savedY;
+        return Math.sqrt(dx * dx + dy * dy) > STONE_R; // FGZ 밖으로 이동 = 파울
+      });
+      if (foul) {
+        // 파울 처리: FGZ 돌 원위치 + 던진 돌 제거
+        for (const snap of this._fgzSnapshot) {
+          snap.stone.x = snap.savedX; snap.stone.y = snap.savedY;
+          snap.stone.vx = 0; snap.stone.vy = 0;
+          snap.stone.inPlay = true;
+          if (snap.stone.sprite) snap.stone.sprite.setPosition(snap.savedX, snap.savedY).setVisible(true).setAlpha(1);
+        }
+        const thrown = this._endStones[this._endStones.length - 1];
+        if (thrown) {
+          thrown.inPlay = false;
+          if (thrown.sprite) thrown.sprite.setVisible(false);
+        }
+        this._showFoulBanner();
+        this._camGo(CAM.house);
+        this.time.delayedCall(CAM.house.dur + 1800, () => this._advanceTurn());
+        return;
+      }
+    }
+
     this._camGo(CAM.house);
     this.time.delayedCall(CAM.house.dur + 100, () => this._advanceTurn());
+  }
+
+  // ─── 프리가드존 파울 배너 ─────────────────────────────────
+  _showFoulBanner() {
+    const ctr = this.add.container(400, 300).setDepth(92).setScrollFactor(0);
+    const bg  = this.add.rectangle(0, 0, 420, 140, 0x440000, 0.95)
+      .setStrokeStyle(3, 0xff4444, 0.9);
+    const t1  = this.add.text(0, -30, '⚠  파울!  프리가드존', {
+      fontSize: '22px', color: '#ff6644', fontFamily: 'monospace', fontStyle: 'bold',
+      stroke: '#000', strokeThickness: 4,
+    }).setOrigin(0.5);
+    const t2  = this.add.text(0, 22, '던진 돌 제거 + 가드 돌 원위치', {
+      fontSize: '14px', color: '#ffddcc', fontFamily: 'monospace',
+      stroke: '#000', strokeThickness: 3,
+    }).setOrigin(0.5);
+    ctr.add([bg, t1, t2]);
+    ctr.setScale(0);
+    this.tweens.add({ targets: ctr, scale: 1, duration: 240, ease: 'Back.easeOut' });
+    this.time.delayedCall(1400, () => {
+      this.tweens.add({ targets: ctr, alpha: 0, duration: 280, onComplete: () => ctr.destroy() });
+    });
   }
 
   // ─── 턴 진행 & 엔드 점수 계산 ────────────────────────────
@@ -1383,6 +1459,18 @@ export default class CurlingScene extends Phaser.Scene {
     if (endTeam === 'player') this._playerScore += endPts;
     else if (endTeam === 'ai') this._aiScore += endPts;
 
+    // [엔드별 점수 기록]
+    this._endScores.push({
+      player: endTeam === 'player' ? endPts : 0,
+      ai:     endTeam === 'ai'     ? endPts : 0,
+      blank:  !endTeam,
+    });
+
+    // [해머 룰] 득점 못 한 팀이 다음 엔드 해머 획득
+    // 블랭크 엔드: 해머 팀이 그대로 유지 (해머 킵 전략)
+    if (endTeam === 'player') this._hammer = 'ai';
+    else if (endTeam === 'ai') this._hammer = 'player';
+
     // 득점 돌에 플로팅 텍스트
     if (endTeam === 'player') {
       pStones.slice(0, endPts).forEach(s =>
@@ -1418,8 +1506,10 @@ export default class CurlingScene extends Phaser.Scene {
     const t2 = this.add.text(0, -10, `🔴  ${this._playerScore}  :  ${this._aiScore}  🔵`, {
       fontSize: '30px', color: '#ffdd66', fontFamily: 'monospace', fontStyle: 'bold',
       stroke: '#000', strokeThickness: 5 }).setOrigin(0.5);
-    const t3 = this.add.text(0, 48,
-      this._endIdx < TOTAL_ENDS ? `다음 END ${this._endIdx + 1}/${TOTAL_ENDS}` : '마지막 엔드!', {
+    const nextInfo = this._endIdx < TOTAL_ENDS
+      ? `다음 END ${this._endIdx + 1}/${TOTAL_ENDS}  해머: ${this._hammer === 'player' ? '🔴' : '🔵AI'}`
+      : '마지막 엔드!';
+    const t3 = this.add.text(0, 48, nextInfo, {
       fontSize: '15px', color: '#88ccff', fontFamily: 'monospace',
       stroke: '#000', strokeThickness: 3 }).setOrigin(0.5);
 
@@ -1469,21 +1559,78 @@ export default class CurlingScene extends Phaser.Scene {
       resultCol = this._gameMode === 'duo' ? '#88aaff' : '#ff8866';
     }
 
-    [
-      { y: 120, txt: '🥌  게 임  종 료  🥌',                       fs: '28px', col: '#ffdd66' },
-      { y: 178, txt: resultTxt,                                      fs: '36px', col: resultCol },
-      { y: 248, txt: `🔴  ${this._playerScore}  :  ${this._aiScore}  🔵`, fs: '34px', col: '#ffffff' },
-      { y: 304, txt: `"영미!" 외침: ${this._sweepCount}회`,         fs: '15px', col: '#88ddff' },
-    ].forEach(({ y, txt, fs, col }) => {
-      this.add.text(400, y, txt, {
-        fontSize: fs, color: col, fontFamily: 'monospace', fontStyle: 'bold',
-        stroke: '#000', strokeThickness: 5,
-      }).setOrigin(0.5).setDepth(101).setScrollFactor(0);
+    // ── 제목 ──────────────────────────────────────────────────
+    this.add.text(400, 48, '🥌  게 임  종 료  🥌', {
+      fontSize: '26px', color: '#ffdd66', fontFamily: 'monospace', fontStyle: 'bold',
+      stroke: '#000', strokeThickness: 5,
+    }).setOrigin(0.5).setDepth(101).setScrollFactor(0);
+
+    this.add.text(400, 92, resultTxt, {
+      fontSize: '32px', color: resultCol, fontFamily: 'monospace', fontStyle: 'bold',
+      stroke: '#000', strokeThickness: 5,
+    }).setOrigin(0.5).setDepth(101).setScrollFactor(0);
+
+    // ── 엔드별 스코어보드 (컬링 중계 스타일) ─────────────────
+    const sbX = 400, sbY = 160;
+    const colW = 46, rowH = 26;
+    const ends = TOTAL_ENDS;
+
+    // 배경 패널
+    const sbW = (ends + 2) * colW + 20;
+    this.add.rectangle(sbX, sbY + rowH * 1.5, sbW, rowH * 3 + 20, 0x050f1e, 0.92)
+      .setStrokeStyle(1.5, 0x2255aa, 0.8).setDepth(101).setScrollFactor(0);
+
+    const mkCell = (x, y, txt, col = '#aabbcc', fs = '13px', bold = false) => {
+      this.add.text(x, y, txt, {
+        fontSize: fs, color: col, fontFamily: 'monospace',
+        fontStyle: bold ? 'bold' : 'normal',
+        stroke: '#000', strokeThickness: 2,
+      }).setOrigin(0.5).setDepth(102).setScrollFactor(0);
+    };
+
+    // 헤더 행 (END 번호 + 합계)
+    mkCell(sbX - (ends / 2 + 0.5) * colW, sbY, '', '#888888');
+    for (let e = 1; e <= ends; e++) {
+      mkCell(sbX + (e - (ends / 2) - 0.5) * colW, sbY, `${e}`, '#8899bb');
+    }
+    mkCell(sbX + (ends / 2 + 0.5) * colW, sbY, '계', '#ffdd66', '13px', true);
+
+    // 팀 행
+    const rows = [
+      { label: '🔴', col: '#ff8888', key: 'player', total: this._playerScore },
+      { label: '🔵AI', col: '#88aaff', key: 'ai',   total: this._aiScore     },
+    ];
+    rows.forEach((row, ri) => {
+      const ry = sbY + rowH * (ri + 1);
+      mkCell(sbX - (ends / 2 + 0.5) * colW, ry, row.label, row.col, '13px', true);
+      for (let e = 0; e < ends; e++) {
+        const sc = this._endScores[e];
+        const pts = sc ? sc[row.key] : '-';
+        const isScore = sc && sc[row.key] > 0;
+        mkCell(
+          sbX + (e - ends / 2 + 0.5) * colW, ry,
+          String(pts), isScore ? row.col : '#556677',
+          isScore ? '14px' : '12px', isScore
+        );
+      }
+      mkCell(sbX + (ends / 2 + 0.5) * colW, ry, String(row.total),
+        playerWins === (row.key === 'player') && !tie ? '#ffdd66' : row.col, '15px', true);
     });
 
+    // ── 총점 & 영미 외침 수 ────────────────────────────────────
+    this.add.text(400, 290, `🔴  ${this._playerScore}  :  ${this._aiScore}  🔵`, {
+      fontSize: '34px', color: '#ffffff', fontFamily: 'monospace', fontStyle: 'bold',
+      stroke: '#000', strokeThickness: 5,
+    }).setOrigin(0.5).setDepth(101).setScrollFactor(0);
+
+    this.add.text(400, 340, `"영미!" 외침: ${this._sweepCount}회`, {
+      fontSize: '14px', color: '#88ddff', fontFamily: 'monospace',
+      stroke: '#000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(101).setScrollFactor(0);
+
     if (this._hasYoungmiImg) {
-      this.add.image(400, 420, 'youngmi-cheer')
-        .setDisplaySize(110, 110).setDepth(101).setScrollFactor(0).setAlpha(0.9);
+      this.add.image(680, 300, 'youngmi-cheer')
+        .setDisplaySize(90, 90).setDepth(101).setScrollFactor(0).setAlpha(0.85);
     }
 
     const mkBtn = (y, label, col, fn) => {
@@ -1498,8 +1645,8 @@ export default class CurlingScene extends Phaser.Scene {
       b.on('pointerover', () => b.setAlpha(0.75));
       b.on('pointerout',  () => b.setAlpha(0.95));
     };
-    mkBtn(500, '🔄  다시하기 (R)', 0x1a3a6a, () => this._restart());
-    mkBtn(562, '⬅  나가기',        0x3a1a1a, () => this._goBack());
+    mkBtn(420, '🔄  다시하기 (R)', 0x1a3a6a, () => this._restart());
+    mkBtn(482, '⬅  나가기',        0x3a1a1a, () => this._goBack());
   }
 
   // ─── 카메라 ───────────────────────────────────────────────
