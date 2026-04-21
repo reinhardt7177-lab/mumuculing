@@ -34,9 +34,10 @@ const S = {
 };
 
 const STONE_R        = 11;     // [Step 7] 18→11 (비율 개선)
-const FRICTION       = 0.0165; // [Step 7] 0.018→0.0165 (투척 거리 9% 늘어남 보정)
-const B_POWER        = 8.5;
-const MIN_RATIO      = 0.77;
+// [Step 8] 물리 튜닝 — 슬라이드 체감 시간 ↑, 조작 폭 확장
+const FRICTION       = 0.0115; // 0.0165→0.0115 (마찰 완화: 도달 시간 +40%)
+const B_POWER        = 6.8;    // 8.5→6.8 (초기 속도 ↓: 훅 튀는 현상 감소)
+const MIN_RATIO      = 0.55;   // 0.77→0.55 (0% 파워도 단거리 가능 → 조절 범위 확장)
 const SWEEP_WIN      = 500;
 const TOTAL_ENDS     = 5;
 const STONES_PER_END = 4;   // 팀당 4개 → 엔드당 8투
@@ -1060,7 +1061,8 @@ export default class CurlingScene extends Phaser.Scene {
   }
 
   _updateCharge(dt) {
-    const spd = 0.020 * dt;
+    // [Step 8] 파워게이지 감속 — 0.020→0.011 (왕복 1.67s → 3.0s, 타이밍 여유)
+    const spd = 0.011 * dt;
     this._powerT += this._powerDir * spd;
     if (this._powerT >= 1) { this._powerT = 1; this._powerDir = -1; }
     if (this._powerT <= 0) { this._powerT = 0; this._powerDir  = 1; }
