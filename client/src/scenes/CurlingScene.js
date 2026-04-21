@@ -34,10 +34,15 @@ const S = {
 };
 
 const STONE_R        = 11;     // [Step 7] 18→11 (비율 개선)
-// [Step 8] 물리 튜닝 — 슬라이드 체감 시간 ↑, 조작 폭 확장
-const FRICTION       = 0.0115; // 0.0165→0.0115 (마찰 완화: 도달 시간 +40%)
-const B_POWER        = 6.8;    // 8.5→6.8 (초기 속도 ↓: 훅 튀는 현상 감소)
-const MIN_RATIO      = 0.55;   // 0.77→0.55 (0% 파워도 단거리 가능 → 조절 범위 확장)
+// [Step 9] 파워 존 재설계 — 빨간 구역 = OUT, 그 전 = 링크 안 착지
+//   설계 목표: throwY=558, 하우스 중심 y=138, 백 라인 y=94 (dist=464)
+//   dist ≈ v_0 * 95 (FRICTION=0.0115 기준, dt≈16.67ms)
+//   T=0.00 → dist 356 (y=202, 호그 통과)
+//   T=0.82 → dist 469 (y=89,  백 라인 5px 넘음 = OUT)
+//   T=1.00 → dist 494 (y=64,  백 라인 30px 넘음 = 확실히 OUT)
+const FRICTION       = 0.0115; // 유지
+const B_POWER        = 5.2;    // 6.8→5.2 (최대 파워에서도 rink 바로 바깥만 OUT)
+const MIN_RATIO      = 0.72;   // 0.55→0.72 (0% 에서도 호그 통과 유지)
 const SWEEP_WIN      = 500;
 const TOTAL_ENDS     = 5;
 const STONES_PER_END = 4;   // 팀당 4개 → 엔드당 8투
@@ -432,6 +437,15 @@ export default class CurlingScene extends Phaser.Scene {
     // 파워 게이지 (CHARGING 시 재배치됨)
     this._powerBg = this.add.rectangle(400, 575, 240, 16, 0x000000, 0.7)
       .setStrokeStyle(1.5, 0x4488ff, 0.8).setDepth(81).setScrollFactor(0).setVisible(false);
+    // [Step 9] OUT 구역 배경 (T≥0.82 영역) — 빨간 음영으로 "여기 넘으면 OUT" 시각화
+    //   바 전체 x=280~520 (240px), 0.82 경계 = x=476.8, 빨간 영역 x=477~520 (폭 43)
+    this._powerOutBg = this.add.rectangle(498, 575, 43, 16, 0x660022, 0.55)
+      .setDepth(81).setScrollFactor(0).setVisible(false);
+    this._powerOutLine = this.add.rectangle(477, 575, 2, 18, 0xff3344, 0.95)
+      .setDepth(82).setScrollFactor(0).setVisible(false);
+    this._powerOutLabel = this.add.text(498, 562, 'OUT', {
+      fontSize: '9px', color: '#ff6677', fontFamily: 'monospace', stroke: '#000', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(82).setScrollFactor(0).setVisible(false);
     this._powerFill = this.add.rectangle(280, 575, 0, 12, 0x44ff88)
       .setOrigin(0, 0.5).setDepth(82).setScrollFactor(0).setVisible(false);
     this._powerLabel = this.add.text(400, 558, 'POWER', {
@@ -865,25 +879,26 @@ export default class CurlingScene extends Phaser.Scene {
 
     if (pInHouse.length > 0 && r < 0.38) {
       // 테이크아웃: 하우스 안 플레이어 돌 제거
+      //   [Step 9] B_POWER=5.2 기준 재튜닝 — 하우스 도달 T≈0.46, OUT T≥0.82
       const tgt = pInHouse[Math.floor(Math.random() * pInHouse.length)];
       targetX = tgt.x + (Math.random() - 0.5) * 16;
       targetY = tgt.y;
       posOffset = (Math.random() - 0.5) * 36;
-      aiPower   = 0.62 + Math.random() * 0.32;
+      aiPower   = 0.48 + Math.random() * 0.24;  // 0.48~0.72 (테이크아웃, OUT 안전)
       errDeg    = (Math.random() - 0.5) * 7;
     } else if (r < 0.72) {
       // 드로: 버튼(티) 근처로 안착
       targetX = RK.houseCx + (Math.random() - 0.5) * 34;
       targetY = RK.houseCy + (Math.random() - 0.5) * 28;
       posOffset = (Math.random() - 0.5) * 28;
-      aiPower   = 0.46 + Math.random() * 0.18;
+      aiPower   = 0.40 + Math.random() * 0.20;  // 0.40~0.60 (드로, 버튼 부근)
       errDeg    = (Math.random() - 0.5) * 10;
     } else {
       // 가드: 하우스 앞쪽에 돌 배치 (드로 약하게)
       targetX = RK.houseCx + (Math.random() - 0.5) * 55;
       targetY = RK.houseCy + 48 + Math.random() * 46;
       posOffset = (Math.random() - 0.5) * 38;
-      aiPower   = 0.35 + Math.random() * 0.14;
+      aiPower   = 0.02 + Math.random() * 0.20;  // 0.02~0.22 (가드, 호그~링 앞)
       errDeg    = (Math.random() - 0.5) * 12;
     }
 
@@ -1061,15 +1076,19 @@ export default class CurlingScene extends Phaser.Scene {
   }
 
   _updateCharge(dt) {
-    // [Step 8] 파워게이지 감속 — 0.020→0.011 (왕복 1.67s → 3.0s, 타이밍 여유)
-    const spd = 0.011 * dt;
+    // [Step 9] 파워게이지 추가 감속 — 0.011→0.007 (왕복 3.0s → 4.8s, 타이밍 여유 ↑)
+    const spd = 0.007 * dt;
     this._powerT += this._powerDir * spd;
     if (this._powerT >= 1) { this._powerT = 1; this._powerDir = -1; }
     if (this._powerT <= 0) { this._powerT = 0; this._powerDir  = 1; }
 
     const w = this._powerT * 240;
     this._powerFill.width = w;
-    const col = this._powerT < 0.5 ? 0x44aaff : (this._powerT < 0.82 ? 0x44ff88 : 0xff5544);
+    // [Step 9] 존 재설계: 파랑(약) / 초록(정상) / 빨강(OUT) — 빨간 구역 = 백 라인 초과
+    //   T<0.40: 약한 가드/드로 (파랑)
+    //   0.40~0.82: 정상 드로/테이크아웃 (초록)
+    //   T≥0.82: 백 라인 초과 = OUT (빨강)
+    const col = this._powerT < 0.40 ? 0x44aaff : (this._powerT < 0.82 ? 0x44ff88 : 0xff5544);
     this._powerFill.fillColor = col;
     this._drawAimLine();
   }
@@ -1495,18 +1514,27 @@ export default class CurlingScene extends Phaser.Scene {
     if (v) {
       const z = CAM.throw.zoom;
       const sc = 1 / z;
-      const bgP  = this._toUI(400, 575, z);
-      const filP = this._toUI(280, 575, z);
-      const labP = this._toUI(400, 558, z);
+      const bgP    = this._toUI(400, 575, z);
+      const filP   = this._toUI(280, 575, z);
+      const labP   = this._toUI(400, 558, z);
+      const outBgP = this._toUI(498, 575, z);
+      const outLnP = this._toUI(477, 575, z);
+      const outLbP = this._toUI(498, 562, z);
 
       this._powerBg.setPosition(bgP.x, bgP.y).setScale(sc);
       this._powerFill.setPosition(filP.x, filP.y).setScale(sc);
       this._powerLabel.setPosition(labP.x, labP.y).setScale(sc);
+      this._powerOutBg.setPosition(outBgP.x, outBgP.y).setScale(sc);
+      this._powerOutLine.setPosition(outLnP.x, outLnP.y).setScale(sc);
+      this._powerOutLabel.setPosition(outLbP.x, outLbP.y).setScale(sc);
       this._powerFill.width = 0;
     }
     this._powerBg.setVisible(v);
     this._powerFill.setVisible(v);
     this._powerLabel.setVisible(v);
+    this._powerOutBg.setVisible(v);
+    this._powerOutLine.setVisible(v);
+    this._powerOutLabel.setVisible(v);
     if (!v) this._powerFill.width = 0;
   }
 
