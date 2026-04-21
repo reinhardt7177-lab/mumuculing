@@ -1076,8 +1076,8 @@ export default class CurlingScene extends Phaser.Scene {
   }
 
   _updateCharge(dt) {
-    // [Step 9] 파워게이지 추가 감속 — 0.011→0.007 (왕복 3.0s → 4.8s, 타이밍 여유 ↑)
-    const spd = 0.007 * dt;
+    // [Step 9] 파워게이지 속도 — 왕복 약 3.7s (0.007→0.009)
+    const spd = 0.009 * dt;
     this._powerT += this._powerDir * spd;
     if (this._powerT >= 1) { this._powerT = 1; this._powerDir = -1; }
     if (this._powerT <= 0) { this._powerT = 0; this._powerDir  = 1; }
